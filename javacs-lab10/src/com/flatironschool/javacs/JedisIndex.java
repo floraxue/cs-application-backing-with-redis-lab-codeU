@@ -68,7 +68,7 @@ public class JedisIndex {
 	 */
 	public Set<String> getURLs(String term) {
         // FILL THIS IN!
-		return null;
+		return jedis.smembers(urlSetKey(term));
 	}
 
     /**
@@ -79,7 +79,26 @@ public class JedisIndex {
 	 */
 	public Map<String, Integer> getCounts(String term) {
         // FILL THIS IN!
-		return null;
+        // Order the URLs in a list
+        List<String> urls = new ArrayList<String>();
+        urls.addAll(getURLs(term));
+
+        // Make a transaction bundle to retrieve all term counts at one time
+        Transaction t = jedis.multi();
+        for (String url: urls) {
+            t.hget(termCounterKey(url), term);
+        }
+
+        List<Object> res = t.exec();
+
+        // Put the returned values into a map
+        Map<String, Integer> map = new HashMap<String, Integer>();
+        int i = 0;
+        for (String url: urls) {
+            map.put(url, Integer.parseInt((String) res.get(i++)));
+        }
+
+		return map;
 	}
 
     /**
@@ -91,7 +110,7 @@ public class JedisIndex {
 	 */
 	public Integer getCount(String url, String term) {
         // FILL THIS IN!
-		return null;
+        return Integer.parseInt(jedis.hget(termCounterKey(url), term));
 	}
 
 
@@ -103,6 +122,24 @@ public class JedisIndex {
 	 */
 	public void indexPage(String url, Elements paragraphs) {
         // FILL THIS IN!
+        // make a TermCounter and count the terms in the paragraphs
+        TermCounter tc = new TermCounter(url);
+        tc.processElements(paragraphs);
+
+        // make a transaction bundle for the following operations
+        Transaction t = jedis.multi();
+
+        // for each term in the current TermCounter, add the result of counting
+        // to the index of the termCounter result map on Redis,
+        // also push the url related to each term to a set on Redis
+        for (String term: tc.keySet()) {
+            t.hset(termCounterKey(tc.getLabel()), term, tc.get(term).toString());
+            t.sadd(urlSetKey(term), tc.getLabel());
+        }
+
+        // push the transaction bundle to Redis
+        t.exec();
+
 	}
 
 	/**
